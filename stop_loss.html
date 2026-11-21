@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Stop Loss Estimator</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+.estimator {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.estimator-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.symbol-field {
+  flex: 1 1 220px;
+}
+.symbol-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+.symbol-field input {
+  width: 100%;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+}
+.estimator-form button {
+  padding: 0.75rem 1rem;
+  color: #fff;
+  background: var(--heading);
+  border: 0;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.estimator-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.estimate-result {
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.estimate-result h2 {
+  margin: 0 0 1rem;
+}
+.estimate-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.estimate-details dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.estimate-details dd {
+  font-weight: 600;
+}
+.estimate-table-wrap {
+  overflow-x: auto;
+}
+.estimate-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.estimate-table th,
+.estimate-table td {
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.estimate-table th {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.estimate-table td:last-child {
+  color: var(--heading);
+  font-weight: 700;
+}
+.status {
+  min-height: 1.6rem;
+  color: var(--muted);
+}
+.status.error {
+  color: #a61b1b;
+}
+.method-note {
+  margin-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+[hidden] {
+  display: none !important;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<header class="site-header">
+<h1>Weekly Stop Loss Estimator</h1>
+<p class="subtitle">Estimate a stop loss from the latest weekly swing high.</p>
+</header>
+<main class="content estimator">
+<form id="estimate-form" class="estimator-form">
+<div class="symbol-field">
+<label for="symbol">Stock ticker</label>
+<input id="symbol" name="symbol" type="text" autocomplete="off" maxlength="20" required
+       pattern="[A-Za-z0-9.^=_\-]{1,20}" placeholder="e.g. MSFT">
+</div>
+<button id="estimate-button" type="submit">Estimate stop loss</button>
+</form>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<section id="result" class="estimate-result" aria-live="polite" hidden>
+<h2 id="result-title"></h2>
+<div class="estimate-table-wrap">
+<table class="estimate-table">
+<thead><tr><th scope="col">ATR multiplier</th><th scope="col">Distance</th><th scope="col">Estimated stop</th></tr></thead>
+<tbody id="estimates"></tbody>
+</table>
+</div>
+<dl class="estimate-details">
+  <div><dt>Swing high</dt><dd id="swing-high"></dd></div>
+  <div><dt>Weekly ATR (<span id="atr-window"></span>)</dt><dd id="atr"></dd></div>
+  <div><dt>Latest weekly close</dt><dd id="latest-close"></dd></div>
+</dl>
+<p class="method-note">
+  Swing points are confirmed using two weekly bars on either side. Each estimate
+  subtracts its ATR multiple from the swing-high price, using the 15-week average
+  true range measured at that swing high.
+</p>
+</section>
+</main>
+<footer class="site-footer">
+<a href="/">← Charts Browser</a>
+</footer>
+</div>
+<script>
+const form = document.getElementById('estimate-form');
+const button = document.getElementById('estimate-button');
+const status = document.getElementById('status');
+const result = document.getElementById('result');
+const currency = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const dateFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+function displayPrice(id, value) {
+  document.getElementById(id).textContent = currency.format(value);
+}
+
+function renderEstimates(estimates) {
+  const rows = document.getElementById('estimates');
+  rows.replaceChildren();
+  for (const estimate of estimates) {
+    const row = document.createElement('tr');
+    const multiplier = document.createElement('td');
+    multiplier.textContent = `${estimate.multiplier.toFixed(1)}×`;
+    const distance = document.createElement('td');
+    distance.textContent = currency.format(estimate.atr_distance);
+    const stop = document.createElement('td');
+    stop.textContent = currency.format(estimate.stop_loss);
+    row.append(multiplier, distance, stop);
+    rows.append(row);
+  }
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!form.reportValidity()) return;
+
+  const symbol = form.elements.symbol.value.trim().toUpperCase();
+  button.disabled = true;
+  result.hidden = true;
+  status.classList.remove('error');
+  status.textContent = `Loading weekly data for ${symbol}…`;
+  try {
+    const response = await fetch(`/api/stop-loss?symbol=${encodeURIComponent(symbol)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to calculate an estimate.');
+
+    document.getElementById('result-title').textContent = `${data.symbol} estimated stop`;
+    renderEstimates(data.estimates);
+    document.getElementById('swing-high').textContent =
+      `${currency.format(data.swing_high)} · ${dateFormat.format(new Date(`${data.swing_high_date}T00:00:00Z`))}`;
+    document.getElementById('atr-window').textContent = `${data.atr_window} weeks`;
+    displayPrice('atr', data.atr);
+    document.getElementById('latest-close').textContent =
+      `${currency.format(data.latest_close)} · ${dateFormat.format(new Date(`${data.latest_date}T00:00:00Z`))}`;
+    result.hidden = false;
+    status.textContent = '';
+  } catch (error) {
+    status.classList.add('error');
+    status.textContent = error.message || 'Unable to load weekly stock data.';
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

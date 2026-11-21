@@ -1,0 +1,11 @@
+services:
+  chart-server:
+    build: .
+    container_name: chart-server
+    ports:
+      - "8080:80"
+    volumes:
+      - /home/rohit/git/finviz/src/weekly-charts:/usr/share/nginx/html/weekly_charts
+      - /home/rohit/git/finviz/src/daily-charts:/usr/share/nginx/html/daily_charts
+      - /home/rohit/git/finviz/md:/md_src:ro
+    restart: unless-stopped
