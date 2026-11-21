@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local endpoints for chart regeneration and stop-loss estimates."""
+
 import json
 import re
 import subprocess
@@ -17,18 +18,22 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z0-9.^=_-]{1,20}$")
 def estimate_stop_loss(candles, atr_window=ATR_WINDOW, pivot_window=PIVOT_WINDOW):
     """Estimate a stop below the latest confirmed pivot high after the latest pivot low."""
     if len(candles) < atr_window + 2 * pivot_window + 1:
-        raise ValueError("Not enough weekly data to calculate ATR and confirmed swing points.")
+        raise ValueError(
+            "Not enough weekly data to calculate ATR and confirmed swing points."
+        )
 
     true_ranges = []
     for index, candle in enumerate(candles):
         high = candle["high"]
         low = candle["low"]
         previous_close = candles[index - 1]["close"] if index else candle["close"]
-        true_ranges.append(max(
-            high - low,
-            abs(high - previous_close),
-            abs(low - previous_close),
-        ))
+        true_ranges.append(
+            max(
+                high - low,
+                abs(high - previous_close),
+                abs(low - previous_close),
+            )
+        )
 
     pivot_lows = _find_confirmed_pivots(candles, "low", pivot_window, is_high=False)
     if not pivot_lows:
@@ -43,13 +48,17 @@ def estimate_stop_loss(candles, atr_window=ATR_WINDOW, pivot_window=PIVOT_WINDOW
         start_index=latest_pivot_low + 1,
     )
     if not pivot_highs:
-        raise ValueError("No confirmed swing high was found after the latest swing low.")
+        raise ValueError(
+            "No confirmed swing high was found after the latest swing low."
+        )
 
     swing_index = pivot_highs[-1]
     if swing_index + 1 < atr_window:
-        raise ValueError("Not enough weekly history at the swing high to calculate ATR.")
+        raise ValueError(
+            "Not enough weekly history at the swing high to calculate ATR."
+        )
 
-    atr = sum(true_ranges[swing_index - atr_window + 1:swing_index + 1]) / atr_window
+    atr = sum(true_ranges[swing_index - atr_window + 1 : swing_index + 1]) / atr_window
     swing_high = candles[swing_index]
     return {
         "swing_high_date": swing_high["date"],
@@ -73,13 +82,14 @@ def _find_confirmed_pivots(candles, field, pivot_window, is_high, start_index=No
     start_index = max(pivot_window, start_index or 0)
     pivots = []
     for index in range(start_index, len(candles) - pivot_window):
-        neighbors = (
-            list(range(index - pivot_window, index))
-            + list(range(index + 1, index + pivot_window + 1))
+        neighbors = list(range(index - pivot_window, index)) + list(
+            range(index + 1, index + pivot_window + 1)
         )
         price = candles[index][field]
         if all(
-            price > candles[neighbor][field] if is_high else price < candles[neighbor][field]
+            price > candles[neighbor][field]
+            if is_high
+            else price < candles[neighbor][field]
             for neighbor in neighbors
         ):
             pivots.append(index)
@@ -106,6 +116,24 @@ def estimate_daily_stop_loss(candles, pivot_window=PIVOT_WINDOW):
     }
 
 
+def estimate_daily_buy_point(candles, pivot_window=PIVOT_WINDOW):
+    """Estimate the latest confirmed daily swing high (a buy point)."""
+    if len(candles) < 2 * pivot_window + 1:
+        raise ValueError("Not enough daily data to confirm a swing high.")
+    pivot_highs = _find_confirmed_pivots(candles, "high", pivot_window, is_high=True)
+    if not pivot_highs:
+        raise ValueError("No confirmed daily swing high was found.")
+
+    swing_high = candles[pivot_highs[-1]]
+    return {
+        "swing_high_date": swing_high["date"],
+        "swing_high": round(swing_high["high"], 2),
+        "pivot_window": pivot_window,
+        "latest_close": round(candles[-1]["close"], 2),
+        "latest_date": candles[-1]["date"],
+    }
+
+
 def _fetch_candles(symbol, period, interval, frequency):
     """Fetch split/dividend-adjusted candles from Yahoo Finance."""
     url = (
@@ -117,11 +145,15 @@ def _fetch_candles(symbol, period, interval, frequency):
         with urlopen(request, timeout=20) as response:
             payload = json.load(response)
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise ValueError(f"Unable to retrieve {frequency} data for {symbol}: {error}") from error
+        raise ValueError(
+            f"Unable to retrieve {frequency} data for {symbol}: {error}"
+        ) from error
 
     chart = payload.get("chart", {})
     if chart.get("error"):
-        raise ValueError(chart["error"].get("description", "The data provider returned an error."))
+        raise ValueError(
+            chart["error"].get("description", "The data provider returned an error.")
+        )
     results = chart.get("result") or []
     if not results:
         raise ValueError(f"No {frequency} data found for {symbol}.")
@@ -142,14 +174,20 @@ def _fetch_candles(symbol, period, interval, frequency):
         high, low, close = highs[index], lows[index], closes[index]
         if high is None or low is None or close is None:
             continue
-        adjusted_close = adjusted_closes[index] if index < len(adjusted_closes) else None
+        adjusted_close = (
+            adjusted_closes[index] if index < len(adjusted_closes) else None
+        )
         adjustment = adjusted_close / close if adjusted_close and close else 1.0
-        candles.append({
-            "date": datetime.fromtimestamp(timestamp, timezone.utc).date().isoformat(),
-            "high": high * adjustment,
-            "low": low * adjustment,
-            "close": close * adjustment,
-        })
+        candles.append(
+            {
+                "date": datetime.fromtimestamp(timestamp, timezone.utc)
+                .date()
+                .isoformat(),
+                "high": high * adjustment,
+                "low": low * adjustment,
+                "close": close * adjustment,
+            }
+        )
     if not candles:
         raise ValueError(f"No usable {frequency} candles found for {symbol}.")
     return candles
@@ -201,7 +239,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _handle(self):
-        if self.path.rstrip("/") == "/regenerate" or self.path.rstrip("/") == "/regenerate":
+        if (
+            self.path.rstrip("/") == "/regenerate"
+            or self.path.rstrip("/") == "/regenerate"
+        ):
             ok, out, err = self._run()
             self._respond(ok, out, err)
         else:
@@ -212,12 +253,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         request = urlsplit(self.path)
-        if request.path in ("/api/stop-loss", "/api/daily-stop-loss"):
+        if request.path in ("/api/stop-loss", "/api/daily-stop-loss", "/api/buy-point"):
             symbol = parse_qs(request.query).get("symbol", [""])[0].strip().upper()
             if not SYMBOL_PATTERN.fullmatch(symbol):
                 self._respond_json(400, {"error": "Enter a valid stock ticker symbol."})
                 return
-            is_daily = request.path == "/api/daily-stop-loss"
+            is_daily = request.path in ("/api/daily-stop-loss", "/api/buy-point")
             try:
                 candles = (
                     fetch_daily_candles(symbol)
@@ -228,11 +269,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._respond_json(502, {"error": str(error)})
                 return
             try:
-                estimate = (
-                    estimate_daily_stop_loss(candles)
-                    if is_daily
-                    else estimate_stop_loss(candles)
-                )
+                if request.path == "/api/buy-point":
+                    estimate = estimate_daily_buy_point(candles)
+                elif is_daily:
+                    estimate = estimate_daily_stop_loss(candles)
+                else:
+                    estimate = estimate_stop_loss(candles)
             except ValueError as error:
                 self._respond_json(422, {"error": str(error)})
                 return

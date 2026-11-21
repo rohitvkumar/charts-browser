@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buy Point Estimator</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+.estimator {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.estimator-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.symbol-field {
+  flex: 1 1 220px;
+}
+.symbol-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+.symbol-field input {
+  width: 100%;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+}
+.estimator-form button {
+  padding: 0.75rem 1rem;
+  color: #fff;
+  background: var(--heading);
+  border: 0;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.estimator-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.estimate-result {
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.estimate-result h2 {
+  margin: 0 0 0.5rem;
+}
+.estimate-price {
+  margin-bottom: 1rem;
+  color: var(--heading);
+  font-size: 2rem;
+  font-weight: 700;
+}
+.estimate-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.estimate-details dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.estimate-details dd {
+  font-weight: 600;
+}
+.status {
+  min-height: 1.6rem;
+  color: var(--muted);
+}
+.status.error {
+  color: #a61b1b;
+}
+.method-note {
+  margin-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+[hidden] {
+  display: none !important;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<header class="site-header">
+<h1>Buy Point Estimator</h1>
+<p class="subtitle">Estimate the swing high (buy point) from daily quotes.</p>
+</header>
+<main class="content estimator">
+<form id="estimate-form" class="estimator-form">
+<div class="symbol-field">
+<label for="symbol">Stock ticker</label>
+<input id="symbol" name="symbol" type="text" autocomplete="off" maxlength="20" required
+       pattern="[A-Za-z0-9.^=_\-]{1,20}" placeholder="e.g. MSFT">
+</div>
+<button id="estimate-button" type="submit">Estimate buy point</button>
+</form>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<section id="result" class="estimate-result" aria-live="polite" hidden>
+<h2 id="result-title"></h2>
+<p id="buy-point" class="estimate-price"></p>
+<dl class="estimate-details">
+  <div><dt>Confirmed swing high</dt><dd id="swing-high"></dd></div>
+  <div><dt>Latest daily close</dt><dd id="latest-close"></dd></div>
+</dl>
+<p class="method-note">
+  Swing highs are confirmed when the high is above the two preceding and two following
+  daily bars. The buy point is the latest confirmed swing high, using one year of
+  daily prices.
+</p>
+</section>
+</main>
+<footer class="site-footer">
+<a href="/">← Charts Browser</a>
+</footer>
+</div>
+<script>
+const form = document.getElementById('estimate-form');
+const button = document.getElementById('estimate-button');
+const status = document.getElementById('status');
+const result = document.getElementById('result');
+const currency = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const dateFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+function displayPrice(id, value) {
+  document.getElementById(id).textContent = currency.format(value);
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!form.reportValidity()) return;
+
+  const symbol = form.elements.symbol.value.trim().toUpperCase();
+  button.disabled = true;
+  result.hidden = true;
+  status.classList.remove('error');
+  status.textContent = `Loading daily data for ${symbol}…`;
+  try {
+    const response = await fetch(`/api/buy-point?symbol=${encodeURIComponent(symbol)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to calculate an estimate.');
+
+    document.getElementById('result-title').textContent = `${data.symbol} buy point`;
+    displayPrice('buy-point', data.swing_high);
+    document.getElementById('swing-high').textContent =
+      `${currency.format(data.swing_high)} · ${dateFormat.format(new Date(`${data.swing_high_date}T00:00:00Z`))}`;
+    document.getElementById('latest-close').textContent =
+      `${currency.format(data.latest_close)} · ${dateFormat.format(new Date(`${data.latest_date}T00:00:00Z`))}`;
+    result.hidden = false;
+    status.textContent = '';
+  } catch (error) {
+    status.classList.add('error');
+    status.textContent = error.message || 'Unable to load daily stock data.';
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

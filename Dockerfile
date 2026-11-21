@@ -11,9 +11,10 @@ COPY regenerate_server.py /app/regenerate_server.py
 COPY styles.css /usr/share/nginx/html/styles.css
 COPY stop_loss.html /usr/share/nginx/html/stop-loss/index.html
 COPY daily_stop_loss.html /usr/share/nginx/html/daily-stop-loss/index.html
+COPY buy_point.html /usr/share/nginx/html/buy-point/index.html
 RUN chmod +x /app/entrypoint.sh /app/render_md.py /app/generate_chart_index.py /app/regenerate_server.py
 
-RUN mkdir -p /md_src /usr/share/nginx/html/md /usr/share/nginx/html/stop-loss /usr/share/nginx/html/daily-stop-loss
+RUN mkdir -p /md_src /usr/share/nginx/html/md /usr/share/nginx/html/stop-loss /usr/share/nginx/html/daily-stop-loss /usr/share/nginx/html/buy-point
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
