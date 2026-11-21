@@ -44,6 +44,10 @@ cat > /usr/share/nginx/html/index.html <<'HTMLEOF'
 <h2>📉 Daily Stop Loss Estimator</h2>
 <p>Estimate a stop 1% below the recent daily swing low</p>
 </a>
+<a class="file-card" href="/buy-point/" style="max-width:280px;">
+<h2>🎯 Buy Point Estimator</h2>
+<p>Estimate the swing high (buy point) from daily quotes</p>
+</a>
 </main>
 <div style="text-align:center;margin-top:2rem;">
 <button id="regen-btn" type="button" style="display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:var(--radius);padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;text-decoration:none;">
