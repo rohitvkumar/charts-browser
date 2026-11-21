@@ -2,6 +2,7 @@ import unittest
 
 from regenerate_server import (
     estimate_daily_buy_point,
+    estimate_daily_swing_low,
     estimate_daily_stop_loss,
     estimate_stop_loss,
 )
@@ -52,6 +53,32 @@ class EstimateStopLossTests(unittest.TestCase):
         self.assertEqual(estimate["swing_low"], 80)
         self.assertEqual(estimate["stop_distance"], 0.8)
         self.assertEqual(estimate["stop_loss"], 79.2)
+
+    def test_daily_swing_low_returns_latest_confirmed_swing_low(self):
+        candles = [
+            {"date": f"2026-01-{index + 1:02d}", "high": 101, "low": 99, "close": 100}
+            for index in range(30)
+        ]
+        candles[12] = {"date": "2026-01-13", "high": 100, "low": 99, "close": 100}
+        candles[22] = {"date": "2026-01-23", "high": 110, "low": 80, "close": 105}
+
+        estimate = estimate_daily_swing_low(candles)
+
+        self.assertEqual(estimate["swing_low_date"], "2026-01-23")
+        self.assertEqual(estimate["swing_low"], 80)
+        self.assertEqual(estimate["pivot_window"], 2)
+        self.assertEqual(estimate["latest_close"], 100)
+        self.assertEqual(estimate["latest_date"], "2026-01-30")
+
+    def test_daily_swing_low_requires_confirmed_swing_low(self):
+        candles = [
+            {"date": f"2026-01-{index + 1:02d}", "high": 101, "low": 99, "close": 100}
+            for index in range(30)
+        ]
+        # All lows are equal — no pivot low confirmed
+
+        with self.assertRaisesRegex(ValueError, "No confirmed daily swing low"):
+            estimate_daily_swing_low(candles)
 
     def test_daily_buy_point_is_latest_confirmed_swing_high(self):
         candles = [

@@ -134,6 +134,24 @@ def estimate_daily_buy_point(candles, pivot_window=PIVOT_WINDOW):
     }
 
 
+def estimate_daily_swing_low(candles, pivot_window=PIVOT_WINDOW):
+    """Estimate the latest confirmed daily swing low (a swing low / stop-loss candidate)."""
+    if len(candles) < 2 * pivot_window + 1:
+        raise ValueError("Not enough daily data to confirm a swing low.")
+    pivot_lows = _find_confirmed_pivots(candles, "low", pivot_window, is_high=False)
+    if not pivot_lows:
+        raise ValueError("No confirmed daily swing low was found.")
+
+    swing_low = candles[pivot_lows[-1]]
+    return {
+        "swing_low_date": swing_low["date"],
+        "swing_low": round(swing_low["low"], 2),
+        "pivot_window": pivot_window,
+        "latest_close": round(candles[-1]["close"], 2),
+        "latest_date": candles[-1]["date"],
+    }
+
+
 def _fetch_candles(symbol, period, interval, frequency):
     """Fetch split/dividend-adjusted candles from Yahoo Finance."""
     url = (
@@ -253,12 +271,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         request = urlsplit(self.path)
-        if request.path in ("/api/stop-loss", "/api/daily-stop-loss", "/api/buy-point"):
+        if request.path in (
+            "/api/stop-loss",
+            "/api/daily-stop-loss",
+            "/api/buy-point",
+            "/api/daily-swing-low",
+        ):
             symbol = parse_qs(request.query).get("symbol", [""])[0].strip().upper()
             if not SYMBOL_PATTERN.fullmatch(symbol):
                 self._respond_json(400, {"error": "Enter a valid stock ticker symbol."})
                 return
-            is_daily = request.path in ("/api/daily-stop-loss", "/api/buy-point")
+            is_daily = request.path in (
+                "/api/daily-stop-loss",
+                "/api/buy-point",
+                "/api/daily-swing-low",
+            )
             try:
                 candles = (
                     fetch_daily_candles(symbol)
@@ -271,6 +298,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if request.path == "/api/buy-point":
                     estimate = estimate_daily_buy_point(candles)
+                elif request.path == "/api/daily-swing-low":
+                    estimate = estimate_daily_swing_low(candles)
                 elif is_daily:
                     estimate = estimate_daily_stop_loss(candles)
                 else:
