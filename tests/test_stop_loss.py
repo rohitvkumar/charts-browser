@@ -1,6 +1,8 @@
 import unittest
+from decimal import Decimal
 
 from regenerate_server import (
+    _parse_investment_amount,
     estimate_daily_buy_point,
     estimate_daily_swing_low,
     estimate_daily_stop_loss,
@@ -95,6 +97,34 @@ class EstimateStopLossTests(unittest.TestCase):
         self.assertEqual(estimate["pivot_window"], 2)
         self.assertEqual(estimate["latest_close"], 100)
         self.assertEqual(estimate["latest_date"], "2026-01-30")
+        self.assertNotIn("whole_shares", estimate)
+
+    def test_daily_buy_point_calculates_only_whole_shares(self):
+        candles = [
+            {"date": f"2026-01-{index + 1:02d}", "high": 101, "low": 99, "close": 100}
+            for index in range(30)
+        ]
+        candles[22] = {"date": "2026-01-23", "high": 115, "low": 105, "close": 110}
+
+        estimate = estimate_daily_buy_point(
+            candles, investment_amount=Decimal("459.99")
+        )
+
+        self.assertEqual(estimate["swing_high"], 115)
+        self.assertEqual(estimate["whole_shares"], 3)
+
+    def test_investment_amount_is_optional_and_must_be_positive(self):
+        self.assertIsNone(_parse_investment_amount({}))
+        self.assertEqual(
+            _parse_investment_amount({"amount": ["125.50"]}),
+            Decimal("125.50"),
+        )
+        for value in ("", "0", "-1", "NaN", "Infinity", "not-a-number"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "positive number"):
+                    _parse_investment_amount({"amount": [value]})
+        with self.assertRaisesRegex(ValueError, "single investment amount"):
+            _parse_investment_amount({"amount": ["100", "200"]})
 
     def test_daily_buy_point_requires_confirmed_swing_high(self):
         candles = [

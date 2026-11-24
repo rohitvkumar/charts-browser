@@ -20,12 +20,17 @@
 .symbol-field {
   flex: 1 1 220px;
 }
-.symbol-field label {
+.amount-field {
+  flex: 1 1 160px;
+}
+.symbol-field label,
+.amount-field label {
   display: block;
   margin-bottom: 0.35rem;
   font-weight: 600;
 }
-.symbol-field input {
+.symbol-field input,
+.amount-field input {
   width: 100%;
   padding: 0.7rem;
   border: 1px solid var(--border);
@@ -103,6 +108,11 @@
 <input id="symbol" name="symbol" type="text" autocomplete="off" maxlength="20" required
        pattern="[A-Za-z0-9.^=_\-]{1,20}" placeholder="e.g. MSFT">
 </div>
+<div class="amount-field">
+<label for="amount">Amount to invest (USD, optional)</label>
+<input id="amount" name="amount" type="number" min="0.01" step="0.01"
+       inputmode="decimal" placeholder="e.g. 1000.00">
+</div>
 <button id="estimate-button" type="submit">Estimate buy point</button>
 </form>
 <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -112,6 +122,9 @@
 <dl class="estimate-details">
   <div><dt>Confirmed swing high</dt><dd id="swing-high"></dd></div>
   <div><dt>Latest daily close</dt><dd id="latest-close"></dd></div>
+  <div id="investment-result" hidden>
+    <dt>Whole shares at the buy point</dt><dd id="whole-shares"></dd>
+  </div>
 </dl>
 <p class="method-note">
   Swing highs are confirmed when the high is above the two preceding and two following
@@ -151,12 +164,16 @@ form.addEventListener('submit', async (event) => {
   if (!form.reportValidity()) return;
 
   const symbol = form.elements.symbol.value.trim().toUpperCase();
+  const amount = form.elements.amount.value;
   button.disabled = true;
   result.hidden = true;
+  document.getElementById('investment-result').hidden = true;
   status.classList.remove('error');
   status.textContent = `Loading daily data for ${symbol}…`;
   try {
-    const response = await fetch(`/api/buy-point?symbol=${encodeURIComponent(symbol)}`);
+    const query = new URLSearchParams({ symbol });
+    if (amount) query.set('amount', amount);
+    const response = await fetch(`/api/buy-point?${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Unable to calculate an estimate.');
 
@@ -166,6 +183,11 @@ form.addEventListener('submit', async (event) => {
       `${currency.format(data.swing_high)} · ${dateFormat.format(new Date(`${data.swing_high_date}T00:00:00Z`))}`;
     document.getElementById('latest-close').textContent =
       `${currency.format(data.latest_close)} · ${dateFormat.format(new Date(`${data.latest_date}T00:00:00Z`))}`;
+    if (data.whole_shares !== undefined) {
+      document.getElementById('whole-shares').textContent =
+        `${data.whole_shares.toLocaleString()} shares for ${currency.format(Number(amount))}`;
+      document.getElementById('investment-result').hidden = false;
+    }
     result.hidden = false;
     status.textContent = '';
   } catch (error) {

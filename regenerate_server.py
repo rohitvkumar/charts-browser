@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlsplit
@@ -116,7 +117,9 @@ def estimate_daily_stop_loss(candles, pivot_window=PIVOT_WINDOW):
     }
 
 
-def estimate_daily_buy_point(candles, pivot_window=PIVOT_WINDOW):
+def estimate_daily_buy_point(
+    candles, pivot_window=PIVOT_WINDOW, investment_amount=None
+):
     """Estimate the latest confirmed daily swing high (a buy point)."""
     if len(candles) < 2 * pivot_window + 1:
         raise ValueError("Not enough daily data to confirm a swing high.")
@@ -125,13 +128,32 @@ def estimate_daily_buy_point(candles, pivot_window=PIVOT_WINDOW):
         raise ValueError("No confirmed daily swing high was found.")
 
     swing_high = candles[pivot_highs[-1]]
-    return {
+    estimate = {
         "swing_high_date": swing_high["date"],
         "swing_high": round(swing_high["high"], 2),
         "pivot_window": pivot_window,
         "latest_close": round(candles[-1]["close"], 2),
         "latest_date": candles[-1]["date"],
     }
+    if investment_amount is not None:
+        buy_point = Decimal(str(estimate["swing_high"]))
+        estimate["whole_shares"] = int(investment_amount // buy_point)
+    return estimate
+
+
+def _parse_investment_amount(query_parameters):
+    values = query_parameters.get("amount")
+    if values is None:
+        return None
+    if len(values) != 1:
+        raise ValueError("Provide a single investment amount.")
+    try:
+        amount = Decimal(values[0])
+    except InvalidOperation as error:
+        raise ValueError("Investment amount must be a positive number.") from error
+    if not amount.is_finite() or amount <= 0:
+        raise ValueError("Investment amount must be a positive number.")
+    return amount
 
 
 def estimate_daily_swing_low(candles, pivot_window=PIVOT_WINDOW):
@@ -277,10 +299,18 @@ class Handler(BaseHTTPRequestHandler):
             "/api/buy-point",
             "/api/daily-swing-low",
         ):
-            symbol = parse_qs(request.query).get("symbol", [""])[0].strip().upper()
+            query_parameters = parse_qs(request.query, keep_blank_values=True)
+            symbol = query_parameters.get("symbol", [""])[0].strip().upper()
             if not SYMBOL_PATTERN.fullmatch(symbol):
                 self._respond_json(400, {"error": "Enter a valid stock ticker symbol."})
                 return
+            investment_amount = None
+            if request.path == "/api/buy-point":
+                try:
+                    investment_amount = _parse_investment_amount(query_parameters)
+                except ValueError as error:
+                    self._respond_json(400, {"error": str(error)})
+                    return
             is_daily = request.path in (
                 "/api/daily-stop-loss",
                 "/api/buy-point",
@@ -297,7 +327,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 if request.path == "/api/buy-point":
-                    estimate = estimate_daily_buy_point(candles)
+                    estimate = estimate_daily_buy_point(
+                        candles, investment_amount=investment_amount
+                    )
                 elif request.path == "/api/daily-swing-low":
                     estimate = estimate_daily_swing_low(candles)
                 elif is_daily:
